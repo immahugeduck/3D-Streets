@@ -28,32 +28,33 @@ function getManeuverIcon(type, modifier) {
   return MANEUVER_ICONS[key] ?? MANEUVER_ICONS[type] ?? '↑'
 }
 
-function speedState(mph, limit) {
-  if (mph > limit + 10) return 'danger'
-  if (mph > limit)      return 'warning'
+function speedState() {
   return 'normal'
 }
 
 export default function NavigationHUD() {
-  const endNavigation    = useStore(s => s.endNavigation)
-  const routeSteps       = useStore(s => s.routeSteps)
-  const currentStepIndex = useStore(s => s.currentStepIndex)
-  const eta              = useStore(s => s.eta)
-  const remainingDist    = useStore(s => s.remainingDist)
-  const speedMPH         = useStore(s => s.speedMPH)
-  const speedLimit       = useStore(s => s.speedLimit)
-  const showSpeedHUD     = useStore(s => s.showSpeedHUD)
-  const openAI           = useStore(s => s.openAI)
-  const setShowWaypoints = useStore(s => s.setShowWaypoints)
-  const rerouteAvailable = useStore(s => s.rerouteAvailable)
-  const rerouteTimeSave  = useStore(s => s.rerouteTimeSave)
-  const setRerouteAvail  = useStore(s => s.setRerouteAvailable)
-  const waypoints        = useStore(s => s.waypoints)
-  const destination      = useStore(s => s.destination)
+  const endNavigation     = useStore(s => s.endNavigation)
+  const routeSteps        = useStore(s => s.routeSteps)
+  const currentStepIndex  = useStore(s => s.currentStepIndex)
+  const eta               = useStore(s => s.eta)
+  const remainingDist     = useStore(s => s.remainingDist)
+  const speedMPH          = useStore(s => s.speedMPH)
+  const showSpeedHUD      = useStore(s => s.showSpeedHUD)
+  const openAI            = useStore(s => s.openAI)
+  const setShowWaypoints  = useStore(s => s.setShowWaypoints)
+  const rerouteAvailable  = useStore(s => s.rerouteAvailable)
+  const rerouteTimeSave   = useStore(s => s.rerouteTimeSave)
+  const setRerouteAvail   = useStore(s => s.setRerouteAvailable)
+  const waypoints         = useStore(s => s.waypoints)
+  const destination       = useStore(s => s.destination)
+  const setShowRouteStops = useStore(s => s.setShowRouteStops)
+  const setShowNavSidebar = useStore(s => s.setShowNavSidebar)
+
+  const totalStops = waypoints.length + (destination ? 1 : 0)
 
   const step = routeSteps[currentStepIndex]
   const nextStep = routeSteps[currentStepIndex + 1]
-  const state = speedState(speedMPH, speedLimit)
+  const state = speedState()
 
   return (
     <>
@@ -99,6 +100,15 @@ export default function NavigationHUD() {
 
         {/* End nav */}
         <button className={styles.endBtn} onClick={endNavigation}>✕</button>
+
+        {/* Sidebar toggle */}
+        <button
+          className={styles.sidebarBtn}
+          onClick={() => setShowNavSidebar(true)}
+          aria-label="Open navigation sidebar"
+        >
+          ☰
+        </button>
       </motion.div>
 
       {/* ── Reroute banner ────────────────────────────────────────────── */}
@@ -135,10 +145,24 @@ export default function NavigationHUD() {
         >
           <div className={styles.speedNum}>{Math.round(speedMPH)}</div>
           <div className={styles.speedUnit}>MPH</div>
-          <div className={styles.speedLimitBadge}>
-            <span className={styles.speedLimitNum}>{speedLimit}</span>
-          </div>
         </motion.div>
+      )}
+
+      {/* ── Next-turn HUD ─────────────────────────────────────────────── */}
+      {nextStep && (
+        <motion.button
+          className={styles.nextTurnHUD}
+          onClick={() => setShowNavSidebar(true)}
+          initial={{ x: 60, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          aria-label="View turn-by-turn directions"
+        >
+          <div className={styles.nextTurnIcon}>
+            {getManeuverIcon(nextStep.maneuver, nextStep.modifier)}
+          </div>
+          <div className={styles.nextTurnLabel}>NEXT</div>
+        </motion.button>
       )}
 
       {/* ── Bottom trip bar ────────────────────────────────────────────── */}
@@ -162,8 +186,8 @@ export default function NavigationHUD() {
 
         <div className={styles.tripDivider} />
 
-        <button className={styles.tripAction} onClick={() => setShowWaypoints(true)}>
-          <div className={styles.tripValue}>{waypoints.length}</div>
+        <button className={styles.tripAction} onClick={() => setShowRouteStops(true)}>
+          <div className={styles.tripValue}>{totalStops}</div>
           <div className={styles.tripLabel}>STOPS</div>
         </button>
 

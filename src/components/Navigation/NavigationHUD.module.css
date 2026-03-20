@@ -69,6 +69,21 @@
 }
 .endBtn:active { transform: scale(0.9); background: rgba(255,78,106,0.3); }
 
+.sidebarBtn {
+  width: 40px; height: 40px;
+  border-radius: var(--r-sm);
+  background: var(--bg-elevated);
+  border: 0.5px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  margin-left: -6px;
+}
+.sidebarBtn:active { transform: scale(0.9); background: var(--border-soft); }
+
 /* ── Reroute banner ───────────────────────────────────────────────────── */
 .rerouteBanner {
   position: absolute;
@@ -170,20 +185,41 @@
   color: var(--text-muted);
 }
 
-.speedLimitBadge {
-  width: 32px; height: 32px;
-  border-radius: 50%;
-  background: white;
-  border: 3px solid var(--red);
-  display: flex; align-items: center; justify-content: center;
-  margin-top: 4px;
+/* ── Next-turn HUD ────────────────────────────────────────────────────── */
+.nextTurnHUD {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 50;
+  width: 74px;
+  background: var(--bg-surface);
+  border-radius: var(--r-md);
+  border: 1px solid rgba(0,212,255,0.3);
+  padding: 10px 8px 8px;
+  text-align: center;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.6), 0 0 16px var(--accent-glow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.15s;
 }
-.speedLimitNum {
-  font-family: var(--font-hud);
-  font-size: 11px;
-  font-weight: 900;
-  color: #000;
+.nextTurnHUD:active { background: var(--bg-elevated); transform: translateY(-50%) scale(0.95); }
+
+.nextTurnIcon {
+  font-size: 30px;
   line-height: 1;
+  color: var(--accent);
+}
+
+.nextTurnLabel {
+  font-family: var(--font-hud);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
 }
 
 /* ── Bottom trip bar ──────────────────────────────────────────────────── */

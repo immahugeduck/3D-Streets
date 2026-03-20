@@ -1,141 +1,105 @@
-// ── Anthropic Claude Service ──────────────────────────────────────────────
-// All AI features flow through here:
-//  1. Co-pilot chat (navigation assistant)
-//  2. Sketch route description
-//  3. Natural language destination parsing
-//  4. POI query refinement
-//  5. Trip summaries
+// ── Anthropic Claude API Service ──────────────────────────────────────────
 
-const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || ''
-const BASE_URL = 'https://api.anthropic.com/v1/messages'
-const MODEL    = 'claude-sonnet-4-20250514'
+const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || ''
+const API_URL = 'https://api.anthropic.com/v1/messages'
+const MODEL   = 'claude-3-5-haiku-20241022'
 
-// Core fetch wrapper
-async function callClaude({ system, messages, maxTokens = 512 }) {
-  if (!API_KEY) {
-    console.warn('No Anthropic API key set. Add VITE_ANTHROPIC_API_KEY to .env')
+async function callClaude(systemPrompt, userMessage, maxTokens = 300) {
+  if (!ANTHROPIC_API_KEY) return null
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type':      'application/json',
+        'x-api-key':         ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.content?.[0]?.text ?? null
+  } catch {
     return null
   }
-
-  const res = await fetch(BASE_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': API_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      system,
-      messages,
-    }),
-  })
-
-  if (!res.ok) {
-    const err = await res.text()
-    console.error('Claude API error:', err)
-    return null
-  }
-
-  const data = await res.json()
-  return data.content?.[0]?.text ?? null
 }
 
-// ── 1. Navigation Co-pilot ────────────────────────────────────────────────
-// Multi-turn conversational assistant embedded in the map.
-export async function sendCopilotMessage({ history, userMessage, context }) {
-  const { userLocation, destination, routeSteps, currentStepIndex } = context
-
-  const system = `You are 3D Streets AI — a calm, expert navigation co-pilot embedded in a premium GPS app.
-You have access to:
-- User's current location: ${userLocation ? `${userLocation.lat.toFixed(4)}, ${userLocation.lng.toFixed(4)}` : 'unknown'}
-- Active destination: ${destination?.name ?? 'none'}
-- Current step: ${routeSteps[currentStepIndex]?.instruction ?? 'not navigating'}
-
-You help with:
-- Finding places ("find a Chipotle before my next stop")
-- Route questions ("how long until I hit traffic?")  
-- Destination changes ("actually let's go to the beach first")
-- General navigation advice
-
-Respond conversationally. Keep answers under 3 sentences unless listing options.
-When suggesting a destination, end your response with: DESTINATION::PlaceName, City, State
-When suggesting a waypoint stop, end with: WAYPOINT::PlaceName, City, State
-Never make up places — only suggest real, well-known locations.`
-
-  const messages = [
-    ...history.map(m => ({ role: m.role, content: m.content })),
-    { role: 'user', content: userMessage }
-  ]
-
-  return callClaude({ system, messages, maxTokens: 400 })
-}
-
-// ── 2. Parse Destination from Natural Language ────────────────────────────
+// ── Parse natural-language destination query ──────────────────────────────
 export async function parseDestination(query, userLocation) {
-  const text = await callClaude({
-    system: `Extract a navigation destination from user input. Return JSON only, no markdown.
-Format: {"name":"place name","address":"full address or city state","type":"address|poi|relative","confidence":0.0-1.0}
-If unclear: {"name":null}`,
-    messages: [{ role: 'user', content: `User at ${userLocation?.lat?.toFixed(3)},${userLocation?.lng?.toFixed(3)} said: "${query}"` }],
-    maxTokens: 150,
-  })
-
+  if (!query) return null
+  const system = `You are a navigation assistant. Parse the user's query and extract the destination name.
+Return JSON: {"destination": "<place name or address>"}
+If the query is unclear, make a reasonable guess. Only return the JSON object, nothing else.`
+  const text = await callClaude(system, query, 100)
+  if (!text) return null
   try {
-    return JSON.parse(text?.replace(/```json|```/g, '').trim())
+    return JSON.parse(text.trim())
   } catch {
     return null
   }
 }
 
-// ── 3. Sketch Route Interpretation ───────────────────────────────────────
-export async function interpretSketch({ startCoord, endCoord, pointCount, corridorMiles }) {
-  return callClaude({
-    system: 'You are a navigation AI. Describe a drawn route in 1 short sentence. Be specific about road types (highway, coastal, backroad, downtown, etc). Confident tone. No quotes.',
-    messages: [{
-      role: 'user',
-      content: `Drawn route: start ${startCoord.lat.toFixed(3)},${startCoord.lng.toFixed(3)} → end ${endCoord.lat.toFixed(3)},${endCoord.lng.toFixed(3)}. Points drawn: ${pointCount}. Corridor: ~${corridorMiles.toFixed(1)} miles wide.`
-    }],
-    maxTokens: 80,
-  })
-}
-
-// ── 4. POI Query Refinement ───────────────────────────────────────────────
-export async function refinePOISearch(userQuery, currentContext) {
-  const text = await callClaude({
-    system: `Parse a POI search query for a navigation app. Return JSON only.
-Format: {"category":"gas|food|coffee|parking|charging|hotel|hospital","searchQuery":"mapbox search string","preferAlongRoute":bool,"maxDetourMiles":number}`,
-    messages: [{ role: 'user', content: `Query: "${userQuery}". Context: ${JSON.stringify(currentContext)}` }],
-    maxTokens: 120,
-  })
-
-  try {
-    return JSON.parse(text?.replace(/```json|```/g, '').trim())
-  } catch {
-    return null
-  }
-}
-
-// ── 5. Trip Summary ───────────────────────────────────────────────────────
+// ── Generate AI trip summary ──────────────────────────────────────────────
 export async function generateTripSummary({ distance, duration, destination }) {
-  return callClaude({
-    system: 'Generate a one-line friendly trip opener for a GPS app co-pilot. Under 10 words. Warm, like a smart travel companion. No quotes.',
-    messages: [{ role: 'user', content: `${distance} to ${destination}, ~${duration}` }],
-    maxTokens: 40,
-  })
+  const system = `You are a friendly navigation assistant. Write a short, one-sentence trip summary (max 20 words).
+Be concise and helpful. No markdown or emojis.`
+  const msg = `Trip to ${destination}: ${distance}, approximately ${duration}.`
+  return callClaude(system, msg, 80)
 }
 
-// ── 6. Smart Route Suggestions ────────────────────────────────────────────
-export async function getRouteSuggestions({ origin, destination, preferences }) {
-  return callClaude({
-    system: `You are a routing expert. Given a trip, suggest 2-3 interesting routing options in JSON array.
-Format: [{"label":"Option name","description":"1 sentence why","type":"fastest|scenic|avoid_highways|avoid_tolls"}]`,
-    messages: [{
-      role: 'user',
-      content: `From: ${origin.name ?? 'current location'}. To: ${destination}. Prefs: ${preferences.join(', ')}`
-    }],
-    maxTokens: 300,
-  })
+// ── Navigation co-pilot ───────────────────────────────────────────────────
+export async function askCopilot(message, context = {}) {
+  const system = `You are a helpful navigation co-pilot for a 3D mapping app.
+You help users plan routes, add destinations, and add stops along the way.
+
+CRITICAL RULES – always follow these:
+1. When the user wants to navigate TO a place or asks for a route to somewhere, you MUST emit exactly one tag like [DESTINATION: place name or address].
+2. When the user wants to add a stop, waypoint, or detour along the route, emit one or more tags like [WAYPOINT: place name].
+3. You can emit BOTH a [DESTINATION:] tag and one or more [WAYPOINT:] tags in the same response when the user describes a full trip with stops.
+4. Use the exact place name or address the user mentions (do not paraphrase it).
+5. Keep conversational text short (under 80 words). Put action tags at the end of your reply.
+
+Examples:
+- "Take me to Central Park" → reply text + [DESTINATION: Central Park]
+- "Route to LAX with a coffee stop" → reply text + [DESTINATION: LAX Airport] [WAYPOINT: Starbucks]
+- "Add a stop at Walmart" → reply text + [WAYPOINT: Walmart]
+- "Stop at McDonald's and then Costco on the way" → reply text + [WAYPOINT: McDonald's] [WAYPOINT: Costco]`
+
+  const parts = []
+  if (context.destination) parts.push(`Current destination: ${context.destination}.`)
+  if (context.waypoints?.length) {
+    parts.push(`Current stops: ${context.waypoints.map(w => w.name).join(', ')}.`)
+  }
+  const ctx = parts.length ? parts.join(' ') + '\n' : ''
+  return callClaude(system, ctx + message, 250)
+}
+
+// ── Search POI via AI ─────────────────────────────────────────────────────
+export async function searchPOIAI(category, location) {
+  const system = `Suggest 3 real ${category} locations near the given coordinates.
+Return JSON array: [{"name": "...", "address": "..."}]
+Only return the JSON array.`
+  const msg = `Near coordinates: ${location?.lat?.toFixed(4)}, ${location?.lng?.toFixed(4)}`
+  const text = await callClaude(system, msg, 300)
+  if (!text) return []
+  try {
+    return JSON.parse(text.trim())
+  } catch {
+    return []
+  }
+}
+
+// ── Interpret sketch as route ─────────────────────────────────────────────
+export async function interpretSketch(sketchInfo) {
+  const system = `You are a route interpreter. Given sketch information, suggest a brief route description.
+Return a short one-sentence description of what this route might be (max 15 words). No JSON, just plain text.`
+  const msg = typeof sketchInfo === 'string'
+    ? sketchInfo
+    : `Route from ${sketchInfo.startCoord?.lat?.toFixed(3)},${sketchInfo.startCoord?.lng?.toFixed(3)} to ${sketchInfo.endCoord?.lat?.toFixed(3)},${sketchInfo.endCoord?.lng?.toFixed(3)}, approximately ${sketchInfo.corridorMiles?.toFixed(1)} miles.`
+  return callClaude(system, msg, 80)
 }
