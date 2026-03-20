@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import mapboxgl from 'mapbox-gl'
-import useStore, { MAP_STYLES } from '../../store/appStore'
+import useStore, { MAP_STYLES, PHASE } from '../../store/appStore'
 import styles from './MapView.module.css'
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || ''
@@ -16,6 +16,7 @@ export default function MapView() {
   const showTraffic = useStore(s => s.showTraffic)
   const userLocation = useStore(s => s.userLocation)
   const userHeading  = useStore(s => s.userHeading)
+  const phase        = useStore(s => s.phase)
 
   // ── Init map ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -83,6 +84,22 @@ export default function MapView() {
       userMarkerRef.current.setRotation(userHeading)
     }
   }, [userLocation, userHeading])
+
+  // ── Camera follow during navigation ─────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !userLocation || phase !== PHASE.NAVIGATING) return
+    const bearing = (userHeading !== null && userHeading !== undefined)
+      ? userHeading
+      : map.getBearing()
+    map.easeTo({
+      center:   [userLocation.lng, userLocation.lat],
+      zoom:     17,
+      pitch:    is3D ? 55 : 0,
+      bearing,
+      duration: 800,
+    })
+  }, [userLocation, userHeading, phase, is3D])
 
   return <div ref={containerRef} className={styles.mapContainer} />
 }
