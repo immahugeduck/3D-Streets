@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import useStore, { PHASE } from '../../store/appStore'
 import { askCopilot } from '../../services/anthropicService'
 import { searchPlaces } from '../../services/mapboxService'
@@ -14,14 +14,13 @@ const QUICK_PROMPTS = [
 
 export default function AICopilot() {
   const [messages, setMessages] = useState([
-    { role: 'assistant', text: 'Hi! I\'m your AI co-pilot. Where would you like to go?' }
+    { role: 'assistant', text: 'Hi! I\\'m your AI co-pilot. Where would you like to go?' }
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef(null)
 
   const setPhase       = useStore(s => s.setPhase)
-  const phase          = useStore(s => s.phase)
   const destination    = useStore(s => s.destination)
   const setDestination = useStore(s => s.setDestination)
   const addWaypoint    = useStore(s => s.addWaypoint)
@@ -38,36 +37,53 @@ export default function AICopilot() {
     setMessages(prev => [...prev, { role: 'user', text: userMsg }])
     setLoading(true)
 
-    const context = { destination: destination?.name }
+    const context = {
+      destination: destination?.name,
+      hasActiveRoute: !!destination,
+    }
+
     const reply = await askCopilot(userMsg, context)
 
     if (reply) {
-      // Parse DESTINATION tag
-      const destMatch = reply.match(/\[DESTINATION:\s*([^\]]+)\]/i)
-      const wpMatch   = reply.match(/\[WAYPOINT:\s*([^\]]+)\]/i)
+      const destinationMatches = [...reply.matchAll(/\[DESTINATION:\s*([^\]]+)\]/gi)]
+      const waypointMatches    = [...reply.matchAll(/\[WAYPOINT:\s*([^\]]+)\]/gi)]
 
-      if (destMatch) {
-        const places = await searchPlaces(destMatch[1], userLocation)
+      if (destinationMatches[0]) {
+        const places = await searchPlaces(destinationMatches[0][1], userLocation)
         if (places[0]) {
           setDestination(places[0])
           setPhase(PHASE.ROUTE_PREVIEW)
         }
-      } else if (wpMatch) {
-        const places = await searchPlaces(wpMatch[1], userLocation)
-        if (places[0]) addWaypoint(places[0])
+      }
+
+      for (const match of waypointMatches) {
+        const places = await searchPlaces(match[1], userLocation)
+        if (places[0]) {
+          addWaypoint({
+            ...places[0],
+            id: `${places[0].id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          })
+        }
       }
 
       const cleanReply = reply
         .replace(/\[DESTINATION:[^\]]+\]/gi, '')
         .replace(/\[WAYPOINT:[^\]]+\]/gi, '')
+        .replace(/\s{2,}/g, ' ')
         .trim()
 
       if (cleanReply) {
         setMessages(prev => [...prev, { role: 'assistant', text: cleanReply }])
+      } else if (destinationMatches.length || waypointMatches.length) {
+        const statusBits = []
+        if (destinationMatches.length) statusBits.push('destination updated')
+        if (waypointMatches.length) statusBits.push(`${waypointMatches.length} stop${waypointMatches.length > 1 ? 's' : ''} added`)
+        setMessages(prev => [...prev, { role: 'assistant', text: `Done — ${statusBits.join(', ')}.` }])
       }
     } else {
-      setMessages(prev => [...prev, { role: 'assistant', text: 'Sorry, I couldn\'t process that. Try asking again.' }])
+      setMessages(prev => [...prev, { role: 'assistant', text: 'Sorry, I couldn\\'t process that. Try asking again.' }])
     }
+
     setLoading(false)
   }
 
@@ -100,7 +116,6 @@ export default function AICopilot() {
           <button className={styles.closeBtn} onClick={close}>✕</button>
         </div>
 
-        {/* Messages */}
         <div className={styles.messages}>
           {messages.map((msg, i) => (
             <div key={i} className={`${styles.bubble} ${msg.role === 'user' ? styles.userBubble : styles.aiBubble}`}>
@@ -115,14 +130,12 @@ export default function AICopilot() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Quick prompts */}
         <div className={styles.quickPrompts}>
           {QUICK_PROMPTS.map(p => (
             <button key={p} className={styles.quickChip} onClick={() => send(p)}>{p}</button>
           ))}
         </div>
 
-        {/* Input */}
         <div className={styles.inputRow}>
           <input
             className={styles.input}
