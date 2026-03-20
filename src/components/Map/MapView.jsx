@@ -5,12 +5,8 @@ import styles from './MapView.module.css'
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || ''
 
-const NAV_CAMERA = {
-  zoom: 17.2,
-  pitch: 72,
-  offset: [0, 170],
-  minUpdateMs: 350,
-}
+// Module-level cache of drawn routes for redrawing after style changes
+let _drawnRoutes = []
 
 export default function MapView() {
   const containerRef = useRef(null)
@@ -64,6 +60,10 @@ export default function MapView() {
     map.once('style.load', () => {
       add3DBuildings(map)
       addTerrain(map)
+      // Redraw any previously drawn routes after style reload
+      _drawnRoutes.forEach(({ geojson, isAlternate }) => {
+        _applyRouteToMap(map, geojson, isAlternate)
+      })
       addTrafficLayers(map)
       syncTrafficVisibility(map, showTraffic)
     })
@@ -100,30 +100,21 @@ export default function MapView() {
     }
   }, [userLocation, userHeading])
 
+  // ── Camera follow during navigation ─────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !userLocation) return
-    if (phase !== PHASE.NAVIGATING) return
-
-    const now = Date.now()
-    if (now - lastCameraUpdateRef.current < NAV_CAMERA.minUpdateMs) return
-    lastCameraUpdateRef.current = now
-
-    const bearing =
-      Number.isFinite(userHeading) && userHeading !== null
-        ? userHeading
-        : map.getBearing()
-
+    if (!map || !userLocation || phase !== PHASE.NAVIGATING) return
+    const bearing = (userHeading !== null && userHeading !== undefined)
+      ? userHeading
+      : map.getBearing()
     map.easeTo({
-      center: [userLocation.lng, userLocation.lat],
+      center:   [userLocation.lng, userLocation.lat],
+      zoom:     17,
+      pitch:    is3D ? 55 : 0,
       bearing,
-      zoom: Math.max(map.getZoom(), NAV_CAMERA.zoom),
-      pitch: NAV_CAMERA.pitch,
-      offset: NAV_CAMERA.offset,
-      duration: 550,
-      essential: true,
+      duration: 800,
     })
-  }, [phase, userLocation, userHeading])
+  }, [userLocation, userHeading, phase, is3D])
 
   return <div ref={containerRef} className={styles.mapContainer} />
 }
@@ -263,6 +254,23 @@ export function flyToUser() {
 export function drawRoute(geojson, isAlternate = false) {
   const map = window._3dstreetsMap
   if (!map) return
+
+  // Update the cached routes list:
+  // - Primary route clears everything and becomes the sole cached entry
+  // - Alternate routes are appended after removing any previous alternates
+  if (!isAlternate) {
+    _drawnRoutes = [{ geojson, isAlternate: false }]
+  } else {
+    _drawnRoutes = [
+      ..._drawnRoutes.filter(r => !r.isAlternate),
+      { geojson, isAlternate: true },
+    ]
+  }
+
+  _applyRouteToMap(map, geojson, isAlternate)
+}
+
+function _applyRouteToMap(map, geojson, isAlternate = false) {
   const sourceId = isAlternate ? 'route-alt' : 'route-main'
   const glowId   = isAlternate ? null : 'route-glow'
   const layerId  = isAlternate ? 'route-layer-alt' : 'route-layer'
@@ -300,6 +308,7 @@ export function drawRoute(geojson, isAlternate = false) {
 
 export function clearRoute() {
   const map = window._3dstreetsMap
+  _drawnRoutes = []
   if (!map) return
   ;['route-layer', 'route-layer-alt', 'route-glow', 'route-main', 'route-alt',
     'sketch-layer', 'sketch-source'].forEach(id => {
