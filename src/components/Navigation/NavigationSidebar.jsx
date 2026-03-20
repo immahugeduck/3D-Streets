@@ -113,34 +113,63 @@ export default function NavigationSidebar() {
           </div>
         )}
 
-        {/* Divider */}
-        <div className={styles.sectionDivider} />
+        {/* Scrollable content area */}
+        <div className={styles.scrollArea}>
+          {/* Directions section */}
+          <div className={styles.sectionDivider} />
+          <div className={styles.sectionLabel}>DIRECTIONS</div>
+          <div className={styles.stepList}>
+            {routeSteps.length === 0 ? (
+              <div className={styles.emptyState}>No directions available</div>
+            ) : (
+              routeSteps.map((s, i) => (
+                <div
+                  key={i}
+                  className={`${styles.dirStep} ${i === currentStepIndex ? styles.dirStepActive : ''} ${i < currentStepIndex ? styles.dirStepDone : ''}`}
+                >
+                  <div className={styles.dirIcon}>
+                    {getManeuverIcon(s.maneuver, s.modifier)}
+                  </div>
+                  <div className={styles.dirText}>
+                    <div className={styles.dirInstruction}>
+                      {s.bannerInstruction ?? s.street ?? 'Continue'}
+                    </div>
+                    {s.distanceLabel && (
+                      <div className={styles.dirDist}>{s.distanceLabel}</div>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
 
-        {/* Stops section */}
-        <div className={styles.sectionLabel}>ROUTE STOPS</div>
-        <div className={styles.stopList}>
-          {stops.length === 0 ? (
-            <div className={styles.emptyStops}>No stops added</div>
-          ) : (
-            stops.map((stop, index) => (
-              <button
-                key={stop.id ?? index}
-                className={`${styles.stopItem} ${selectedStop?.id === stop.id ? styles.stopSelected : ''}`}
-                onClick={() => handleStopClick(stop)}
-              >
-                <div className={`${styles.stopDot} ${stop.isFinal ? styles.stopDotFinal : ''}`}>
-                  <span>{stop.isFinal ? '🏁' : stop.index}</span>
-                </div>
-                <div className={styles.stopText}>
-                  <div className={styles.stopName}>{stop.name ?? `Stop ${stop.index}`}</div>
-                  {stop.address && stop.address !== stop.name && (
-                    <div className={styles.stopAddr}>{stop.address}</div>
-                  )}
-                </div>
-                <span className={styles.stopChevron}>›</span>
-              </button>
-            ))
-          )}
+          {/* Stops section */}
+          <div className={styles.sectionDivider} />
+          <div className={styles.sectionLabel}>ROUTE STOPS</div>
+          <div className={styles.stopList}>
+            {stops.length === 0 ? (
+              <div className={styles.emptyStops}>No stops added</div>
+            ) : (
+              stops.map((stop, index) => (
+                <button
+                  key={stop.id ?? index}
+                  className={`${styles.stopItem} ${selectedStop?.id === stop.id ? styles.stopSelected : ''}`}
+                  onClick={() => handleStopClick(stop)}
+                >
+                  <div className={`${styles.stopDot} ${stop.isFinal ? styles.stopDotFinal : ''}`}>
+                    <span>{stop.isFinal ? '🏁' : stop.index}</span>
+                  </div>
+                  <div className={styles.stopText}>
+                    <div className={styles.stopName}>{stop.name ?? `Stop ${stop.index}`}</div>
+                    {stop.address && stop.address !== stop.name && (
+                      <div className={styles.stopAddr}>{stop.address}</div>
+                    )}
+                  </div>
+                  <span className={styles.stopChevron}>›</span>
+                </button>
+              ))
+            )}
+          </div>
         </div>
 
         {/* All stops button */}
