@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import useStore, { PHASE } from '../../store/appStore'
 import { searchPlaces } from '../../services/mapboxService'
@@ -8,35 +8,32 @@ import styles from './SearchBar.module.css'
 const QUICK_CATEGORIES = [
   { id: 'food',     label: '🍔 Food',       icon: '🍔' },
   { id: 'gas',      label: '⛽ Gas',        icon: '⛽' },
-  { id: 'coffee',   label: '☕ Coffee',     icon: '☕' },
-  { id: 'parking',  label: '🅿️ Parking',   icon: '🅿️' },
+  { id: 'coffee',   label: '☕ Coffee',      icon: '☕' },
+  { id: 'parking',  label: '🅿️ Parking',    icon: '🅿️' },
   { id: 'charging', label: '⚡ EV Charge',  icon: '⚡' },
-  { id: 'hotel',    label: '🏨 Hotels',    icon: '🏨' },
+  { id: 'hotel',    label: '🏨 Hotels',      icon: '🏨' },
 ]
 
 let debounceTimer = null
 
 export default function SearchBar() {
-  const [focused, setFocused] = useState(false)
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState([])
-  const [loading, setLoading] = useState(false)
+  const [focused, setFocused]   = useState(false)
+  const [query, setQuery]       = useState('')
+  const [results, setResults]   = useState([])
+  const [loading, setLoading]   = useState(false)
   const inputRef = useRef(null)
 
   const setPhase       = useStore(s => s.setPhase)
   const setDestination = useStore(s => s.setDestination)
-  const addWaypoint    = useStore(s => s.addWaypoint)
-  const destination    = useStore(s => s.destination)
   const openAI         = useStore(s => s.openAI)
   const setShowSettings = useStore(s => s.setShowSettings)
-  const setShowPOI      = useStore(s => s.setShowPOI)
-  const setPoiCategory  = useStore(s => s.setPoiCategory)
-  const userLocation    = useStore(s => s.userLocation)
-  const phase           = useStore(s => s.phase)
+  const setShowPOI     = useStore(s => s.setShowPOI)
+  const setPoiCategory = useStore(s => s.setPoiCategory)
+  const userLocation   = useStore(s => s.userLocation)
+  const phase          = useStore(s => s.phase)
 
+  // Don't show search when navigating
   if (phase === PHASE.NAVIGATING || phase === PHASE.SKETCHING) return null
-
-  const hasActiveRoute = !!destination
 
   const doSearch = useCallback(async (q) => {
     if (q.length < 2) { setResults([]); return }
@@ -55,49 +52,22 @@ export default function SearchBar() {
 
   async function onKeyDown(e) {
     if (e.key === 'Enter' && query.trim()) {
-      const parsed = await parseDestination(query, userLocation, { hasActiveRoute: !!destination })
-      const mode = parsed?.waypoint ? 'waypoint' : 'destination'
-      const target = parsed?.waypoint ?? parsed?.destination ?? query
-
-      const res = await searchPlaces(target, userLocation)
-      if (res[0]) {
-        selectResult(res[0], mode)
-        return
+      // Try AI parse first if query is natural language
+      const parsed = await parseDestination(query, userLocation)
+      if (parsed?.name) {
+        const aiQuery = parsed.address ? `${parsed.name}, ${parsed.address}` : parsed.name
+        const res = await searchPlaces(aiQuery, userLocation)
+        if (res[0]) { selectResult(res[0]); return }
       }
-
-      if (results[0]) {
-        selectResult(results[0], mode)
-      }
+      // Fall back to top search result
+      if (results[0]) selectResult(results[0])
     }
-
     if (e.key === 'Escape') blur()
   }
 
-  function selectResult(result, requestedMode = 'destination') {
-    const shouldAddStop =
-      requestedMode === 'waypoint' ||
-      (destination && phase === PHASE.ROUTE_PREVIEW)
-
-    if (shouldAddStop) {
-      addWaypoint({
-        ...result,
-        id: `${result.id}-${Date.now()}`,
-      })
-      setPhase(PHASE.ROUTE_PREVIEW)
-    } else {
-      setDestination(result)
-      setPhase(PHASE.ROUTE_PREVIEW)
-    }
-
-    setQuery('')
-    setResults([])
-    setFocused(false)
-    inputRef.current?.blur()
-  }
-
-  function addResultAsStop(result, e) {
-    e.stopPropagation()
-    addWaypoint(result)
+  function selectResult(result) {
+    setDestination(result)
+    setPhase(PHASE.ROUTE_PREVIEW)
     setQuery('')
     setResults([])
     setFocused(false)
@@ -116,13 +86,9 @@ export default function SearchBar() {
     blur()
   }
 
-  const searchLabel =
-    destination && phase === PHASE.ROUTE_PREVIEW
-      ? 'Search destination or add a stop'
-      : 'Where to?'
-
   return (
     <div className={styles.wrapper}>
+      {/* Input row */}
       <div className={`${styles.inputRow} ${focused ? styles.focused : ''}`}>
         {!focused && (
           <motion.div
@@ -143,7 +109,7 @@ export default function SearchBar() {
             onChange={onInput}
             onKeyDown={onKeyDown}
             onFocus={() => setFocused(true)}
-            placeholder={hasActiveRoute ? 'Search or add a stop…' : 'Where to?'}
+            placeholder="Where to?"
             autoComplete="off"
             autoCorrect="off"
             spellCheck="false"
@@ -154,6 +120,7 @@ export default function SearchBar() {
           )}
         </div>
 
+        {/* AI & Settings buttons when not focused */}
         {!focused ? (
           <div className={styles.rightBtns}>
             <button className={styles.aiBtn} onClick={openAI} title="AI Co-pilot">
@@ -168,6 +135,7 @@ export default function SearchBar() {
         )}
       </div>
 
+      {/* Dropdown */}
       <AnimatePresence>
         {focused && (
           <motion.div
@@ -177,6 +145,7 @@ export default function SearchBar() {
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
           >
+            {/* Quick categories (when no query) */}
             {!query && (
               <div className={styles.categories}>
                 <div className={styles.sectionLabel}>NEARBY</div>
@@ -191,11 +160,9 @@ export default function SearchBar() {
               </div>
             )}
 
+            {/* Results */}
             {results.length > 0 && (
               <div className={styles.results}>
-                {hasActiveRoute && (
-                  <div className={`${styles.sectionLabel} ${styles.stopHint}`}>TAP TO SET DESTINATION · + TO ADD STOP</div>
-                )}
                 {results.map((r, i) => (
                   <button key={r.id} className={styles.resultRow} onClick={() => selectResult(r)}>
                     <div className={styles.resultIcon}>
@@ -208,26 +175,16 @@ export default function SearchBar() {
                     {r.distance && (
                       <div className={styles.resultDist}>{formatDist(r.distance)}</div>
                     )}
-                    {hasActiveRoute && (
-                      <button
-                        className={styles.addStopBtn}
-                        onClick={(e) => addResultAsStop(r, e)}
-                        title="Add as stop"
-                      >
-                        +
-                      </button>
-                    )}
                   </button>
                 ))}
               </div>
             )}
 
+            {/* AI hint */}
             {query.length > 3 && results.length === 0 && !loading && (
               <div className={styles.aiHint}>
                 <span className={styles.aiHintIcon}>✦</span>
-                <span>
-                  Press Enter — AI will interpret your {destination ? 'stop or destination' : 'destination'}
-                </span>
+                <span>Press Enter — AI will interpret your destination</span>
               </div>
             )}
           </motion.div>

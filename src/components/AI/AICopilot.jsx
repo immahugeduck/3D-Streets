@@ -1,170 +1,231 @@
 import { useState, useRef, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import useStore, { PHASE } from '../../store/appStore'
-import { askCopilot } from '../../services/anthropicService'
-import { searchPlaces } from '../../services/mapboxService'
+import { motion, AnimatePresence } from 'framer-motion'
+import useStore from '../../store/appStore'
+import { sendCopilotMessage, getLastClaudeError } from '../../services/anthropicService'
 import styles from './AICopilot.module.css'
 
 const QUICK_PROMPTS = [
-  'Find me a gas station',
-  'Best route to avoid traffic',
-  'Add a coffee stop',
-  'How long until I arrive?',
+  { label: '⛽ Gas near me',         text: 'Find me the closest gas station' },
+  { label: '🍔 Food along route',    text: 'Find a good restaurant along my route' },
+  { label: '☕ Coffee stop',          text: 'I need a coffee stop soon' },
+  { label: '🅿️ Parking ahead',       text: 'Find parking near my destination' },
+  { label: '⚡ EV charging',          text: 'Find an EV charging station nearby' },
+  { label: '🏨 Hotels tonight',       text: 'Find hotels near my destination' },
 ]
 
 export default function AICopilot() {
-  const [messages, setMessages] = useState([
-    { role: 'assistant', text: "Hi! I'm your AI co-pilot. Where would you like to go?" }
-  ])
   const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const bottomRef = useRef(null)
+  const messagesEndRef = useRef(null)
+  const inputRef = useRef(null)
 
-  const setPhase           = useStore(s => s.setPhase)
-  const phase              = useStore(s => s.phase)
-  const destination        = useStore(s => s.destination)
-  const setDestinationOnly = useStore(s => s.setDestinationOnly)
-  const addWaypoint        = useStore(s => s.addWaypoint)
-  const waypoints          = useStore(s => s.waypoints)
-  const userLocation       = useStore(s => s.userLocation)
+  const closeAI       = useStore(s => s.closeAI)
+  const messages      = useStore(s => s.aiMessages)
+  const addMessage    = useStore(s => s.addAIMessage)
+  const aiThinking    = useStore(s => s.aiThinking)
+  const setAIThinking = useStore(s => s.setAIThinking)
+  const userLocation  = useStore(s => s.userLocation)
+  const destination   = useStore(s => s.destination)
+  const routeSteps    = useStore(s => s.routeSteps)
+  const currentStepIndex = useStore(s => s.currentStepIndex)
+  const setDestination = useStore(s => s.setDestination)
+  const setPhase       = useStore(s => s.setPhase)
+  const addWaypoint    = useStore(s => s.addWaypoint)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, aiThinking])
+
+  useEffect(() => {
+    // Welcome message
+    if (messages.length === 0) {
+      addMessage({
+        role: 'assistant',
+        content: destination
+          ? `Heading to **${destination.name}**. How can I help? Ask me to find stops, change routes, or anything about your trip.`
+          : `Hi! I'm your 3D Streets co-pilot. Tell me where you want to go, or ask me to find something nearby.`,
+      })
+    }
+    setTimeout(() => inputRef.current?.focus(), 300)
+  }, [])
 
   async function send(text) {
-    if (!text?.trim() || loading) return
-    const userMsg = text.trim()
+    const userText = (text ?? input).trim()
+    if (!userText || aiThinking) return
     setInput('')
-    setMessages(prev => [...prev, { role: 'user', text: userMsg }])
-    setLoading(true)
 
-    const context = {
-      destination: destination?.name,
-      waypoints,
-    }
-    const reply = await askCopilot(userMsg, context)
+    addMessage({ role: 'user', content: userText })
+    setAIThinking(true)
 
-    if (reply) {
-      // Parse DESTINATION tag
-      const destMatch = reply.match(/\[DESTINATION:\s*([^\]]+)\]/i)
-      // Parse ALL WAYPOINT tags
-      const wpMatches = [...reply.matchAll(/\[WAYPOINT:\s*([^\]]+)\]/gi)]
-
-      if (destMatch) {
-        const places = await searchPlaces(destMatch[1].trim(), userLocation)
-        if (places[0]) {
-          // Set destination without changing phase yet; we'll transition after all stops are added
-          setDestinationOnly(places[0])
-        }
-      }
-
-      // Handle all waypoint tags – resolve searches in parallel for speed
-      const wpResults = await Promise.all(
-        wpMatches.map(wpMatch => searchPlaces(wpMatch[1].trim(), userLocation))
-      )
-      wpResults.forEach(places => {
-        if (places[0]) addWaypoint(places[0])
+    let reply = null
+    try {
+      reply = await sendCopilotMessage({
+        history: messages.slice(-8),
+        userMessage: userText,
+        context: { userLocation, destination, routeSteps, currentStepIndex },
       })
-
-      // Transition to route preview after all stops are resolved
-      if (destMatch) {
-        setPhase(PHASE.ROUTE_PREVIEW)
-      }
-
-      const cleanReply = reply
-        .replace(/\[DESTINATION:[^\]]+\]/gi, '')
-        .replace(/\[WAYPOINT:[^\]]+\]/gi, '')
-        .replace(/\s{2,}/g, ' ')
-        .trim()
-
-      if (cleanReply) {
-        setMessages(prev => [...prev, { role: 'assistant', text: cleanReply }])
-      } else if (destMatch || wpMatches.length) {
-        const statusBits = []
-        if (destMatch) statusBits.push('destination updated')
-        if (wpMatches.length) statusBits.push(`${wpMatches.length} stop${wpMatches.length > 1 ? 's' : ''} added`)
-        setMessages(prev => [...prev, { role: 'assistant', text: `Done — ${statusBits.join(', ')}.` }])
-      }
-    } else {
-      setMessages(prev => [...prev, { role: 'assistant', text: "Sorry, I couldn't process that. Try asking again." }])
+    } finally {
+      setAIThinking(false)
     }
 
-    setLoading(false)
+    if (!reply) {
+      const details = getLastClaudeError()
+      addMessage({
+        role: 'assistant',
+        content: details
+          ? `I couldn't respond right now. ${details}`
+          : "I couldn't respond right now. Check your Anthropic key in .env or .env.local.",
+      })
+      return
+    }
+
+    // Parse action tags
+    let cleanReply = reply
+    const destMatch = reply.match(/DESTINATION::(.+)/)
+    const wpMatch   = reply.match(/WAYPOINT::(.+)/)
+
+    if (destMatch) {
+      cleanReply = reply.replace(/DESTINATION::.+/, '').trim()
+      // Trigger geocode for destination
+      handleAIDestination(destMatch[1].trim())
+    } else if (wpMatch) {
+      cleanReply = reply.replace(/WAYPOINT::.+/, '').trim()
+      handleAIWaypoint(wpMatch[1].trim())
+    }
+
+    addMessage({ role: 'assistant', content: cleanReply })
   }
 
-  function close() {
-    // Return to route preview if a destination is active, otherwise go idle
-    if (destination) {
-      setPhase(PHASE.ROUTE_PREVIEW)
-    } else {
-      setPhase(PHASE.IDLE)
+  async function handleAIDestination(placeName) {
+    const { searchPlaces } = await import('../../services/mapboxService')
+    const results = await searchPlaces(placeName, userLocation)
+    if (results[0]) {
+      setDestination(results[0])
+      setPhase('route_preview')
     }
+  }
+
+  async function handleAIWaypoint(placeName) {
+    const { searchPlaces } = await import('../../services/mapboxService')
+    const results = await searchPlaces(placeName, userLocation)
+    if (results[0]) addWaypoint(results[0])
   }
 
   return (
-    <>
-      <motion.div
-        className={styles.backdrop}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={close}
-      />
-      <motion.div
-        className={styles.panel}
-        initial={{ y: '100%' }}
-        animate={{ y: 0 }}
-        exit={{ y: '100%' }}
-        transition={{ type: 'spring', stiffness: 380, damping: 40 }}
-      >
-        <div className={styles.handle} />
-        <div className={styles.header}>
-          <div className={styles.headerLeft}>
-            <div className={styles.aiOrb} />
-            <div className={styles.headerTitle}>AI Co-Pilot</div>
+    <motion.div
+      className={styles.panel}
+      initial={{ y: '100%', opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: '100%', opacity: 0 }}
+      transition={{ type: 'spring', stiffness: 380, damping: 38 }}
+    >
+      {/* Header */}
+      <div className={styles.header}>
+        <div className={styles.headerLeft}>
+          <div className={styles.aiOrb}>
+            <span className={styles.aiOrbInner} />
           </div>
-          <button className={styles.closeBtn} onClick={close}>✕</button>
+          <div>
+            <div className={styles.title}>AI Co-Pilot</div>
+            <div className={styles.subtitle}>Powered by Claude</div>
+          </div>
         </div>
+        <button className={styles.closeBtn} onClick={closeAI}>✕</button>
+      </div>
 
-        <div className={styles.messages}>
-          {messages.map((msg, i) => (
-            <div key={i} className={`${styles.bubble} ${msg.role === 'user' ? styles.userBubble : styles.aiBubble}`}>  
-              {msg.text}
-            </div>
-          ))}
-          {loading && (
-            <div className={`${styles.bubble} ${styles.aiBubble} ${styles.loadingBubble}`}> 
-              <span className={styles.dot} /><span className={styles.dot} /><span className={styles.dot} />
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
+      <div className={styles.divider} />
 
-        <div className={styles.quickPrompts}>  
+      {/* Quick prompts */}
+      {messages.length <= 1 && (
+        <div className={styles.quickPrompts}>
           {QUICK_PROMPTS.map(p => (
-            <button key={p} className={styles.quickChip} onClick={() => send(p)}>{p}</button>
+            <button key={p.text} className={styles.quickChip} onClick={() => send(p.text)}>
+              {p.label}
+            </button>
           ))}
         </div>
+      )}
 
-        <div className={styles.inputRow}>
-          <input
-            className={styles.input}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && send(input)}
-            placeholder="Ask anything…"
-            autoComplete="off"
-          />
-          <button
-            className={styles.sendBtn}
-            onClick={() => send(input)}
-            disabled={!input.trim() || loading}
+      {/* Messages */}
+      <div className={styles.messages}>
+        <AnimatePresence initial={false}>
+          {messages.map(msg => (
+            <motion.div
+              key={msg.id}
+              className={`${styles.message} ${msg.role === 'user' ? styles.user : styles.assistant}`}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              {msg.role === 'assistant' && (
+                <div className={styles.assistantIcon}>✦</div>
+              )}
+              <div className={styles.bubble}>
+                <MarkdownText text={msg.content} />
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+
+        {/* Thinking indicator */}
+        {aiThinking && (
+          <motion.div
+            className={`${styles.message} ${styles.assistant}`}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
           >
-            ▶
-          </button>
-        </div>
-      </motion.div>
-    </>
+            <div className={styles.assistantIcon}>✦</div>
+            <div className={styles.bubble}>
+              <div className={styles.thinkingDots}>
+                <span /><span /><span />
+              </div>
+            </div>
+          </motion.div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input */}
+      <div className={styles.inputRow}>
+        <input
+          ref={inputRef}
+          className={styles.input}
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && send()}
+          placeholder="Ask your co-pilot anything…"
+          disabled={aiThinking}
+        />
+        <button
+          className={styles.sendBtn}
+          onClick={() => send()}
+          disabled={!input.trim() || aiThinking}
+        >
+          <SendIcon />
+        </button>
+      </div>
+    </motion.div>
+  )
+}
+
+// Simple markdown: **bold** and line breaks
+function MarkdownText({ text }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/)
+  return (
+    <span>
+      {parts.map((part, i) =>
+        part.startsWith('**') && part.endsWith('**')
+          ? <strong key={i}>{part.slice(2, -2)}</strong>
+          : <span key={i}>{part}</span>
+      )}
+    </span>
+  )
+}
+
+function SendIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="22" y1="2" x2="11" y2="13" />
+      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+    </svg>
   )
 }
