@@ -5,6 +5,27 @@
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || ''
 const BASE    = 'https://places.googleapis.com/v1'
 
+// ── Autocomplete session tokens ───────────────────────────────────────────
+// Google bills every autocomplete keystroke separately UNLESS all the
+// keystrokes of one search plus the final Place Details call share a single
+// session token — then the whole search is billed as one cheaper unit.
+// We lazily mint a token for a search "session" and clear it once the user
+// resolves a place, so the next search starts a fresh session.
+let sessionToken = null
+
+function getSessionToken() {
+  if (!sessionToken) {
+    sessionToken =
+      (globalThis.crypto?.randomUUID?.()) ||
+      `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+  return sessionToken
+}
+
+function endSession() {
+  sessionToken = null
+}
+
 // Map Google place types to the same emoji used by the Mapbox path
 function typeToEmoji(types = []) {
   const t = types.join(' ')
@@ -45,6 +66,7 @@ export async function searchPlaces(query, proximity = null) {
     input:        query,
     languageCode: 'en',
     regionCode:   'us',
+    sessionToken: getSessionToken(),
   }
 
   if (proximity) {
@@ -93,9 +115,13 @@ export async function searchPlaces(query, proximity = null) {
 // Called once the user picks a suggestion so we can navigate to it.
 export async function resolvePlaceCoords(placeId) {
   if (!API_KEY || !placeId) return null
+  // Closing the autocomplete session: send the same token so Google bills
+  // this details call as the end of one session, then reset for next time.
+  const token  = getSessionToken()
+  const fields = 'location,displayName,formattedAddress,types'
   try {
     const res  = await fetch(
-      `${BASE}/places/${placeId}?fields=location,displayName,formattedAddress,types`,
+      `${BASE}/places/${placeId}?fields=${fields}&sessionToken=${token}`,
       { headers: { 'X-Goog-Api-Key': API_KEY } },
     )
     const data = await res.json()
@@ -108,6 +134,8 @@ export async function resolvePlaceCoords(placeId) {
     }
   } catch {
     return null
+  } finally {
+    endSession()
   }
 }
 

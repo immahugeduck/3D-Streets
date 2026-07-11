@@ -14,8 +14,9 @@ Works on iOS Safari, Android Chrome, and desktop browsers.
 │   ├── store/appStore.js               ← Zustand global state
 │   ├── hooks/useLocation.js            ← GPS tracking hook
 │   ├── services/
-│   │   ├── anthropicService.js         ← All Claude AI features
-│   │   └── mapboxService.js            ← Directions, search, POI
+│   │   ├── anthropicService.js         ← Claude AI client (calls /api/ai)
+│   │   ├── mapboxService.js            ← Directions, routing, map-matching
+│   │   └── googlePlacesService.js      ← Search, autocomplete, nearby POI
 │   ├── styles/design-system.css        ← Full design token system
 │   └── components/
 │       ├── Map/MapView.jsx             ← 3D Mapbox map + layers
@@ -57,25 +58,45 @@ This installs: React 18, Mapbox GL JS, Zustand, Framer Motion, Lucide React, Vit
 ## Step 3 — Add Your API Keys
 
 ```bash
-cp .env.example .env
+cp .env.example .env.local
 ```
 
-Open `.env` and fill in:
+Open `.env.local` and fill in:
 
 ```
+# Browser-safe public keys (bundled into the client)
 VITE_MAPBOX_TOKEN=pk.your_mapbox_token
-VITE_ANTHROPIC_API_KEY=sk-ant-your_key
+VITE_GOOGLE_MAPS_KEY=your_google_maps_key
+
+# Server-only — set in Vercel, NOT here with a VITE_ prefix
+ANTHROPIC_API_KEY=sk-ant-your_key
 ```
+
+> ⚠️ The Anthropic key must **never** get a `VITE_` prefix — anything prefixed
+> `VITE_` is bundled into the browser and publicly readable. Claude is called
+> through the server-side `/api/ai` function, so `ANTHROPIC_API_KEY` belongs in
+> the Vercel dashboard (Settings → Environment Variables), not the client bundle.
 
 ### Get your Mapbox token (free):
 1. Go to https://account.mapbox.com
 2. Create account → "Access Tokens" → copy the **default public token**
 3. It starts with `pk.`
 
+### Get your Google Maps key:
+1. Go to https://console.cloud.google.com → APIs & Services
+2. Enable **Places API (New)** and **Maps JavaScript API**
+3. Credentials → Create credentials → API key
+4. **Restrict the key** (see below) — it ships in the browser bundle
+
+> 🔒 Because `VITE_GOOGLE_MAPS_KEY` is visible in the client, lock it down in
+> Cloud Console: an **Application restriction** (HTTP referrers = your deployed
+> domain) **and** an **API restriction** (only the Places/Maps APIs you use).
+> An unrestricted key can be lifted from your site and billed against.
+
 ### Get your Anthropic key:
 1. Go to https://console.anthropic.com
 2. API Keys → Create key
-3. Starts with `sk-ant-`
+3. Starts with `sk-ant-` — set it as `ANTHROPIC_API_KEY` in Vercel
 
 ---
 
@@ -155,7 +176,8 @@ Once deployed to HTTPS:
 | Problem | Fix |
 |---|---|
 | Map won't load | Check `VITE_MAPBOX_TOKEN` in .env — must start with `pk.` |
-| AI not responding | Check `VITE_ANTHROPIC_API_KEY` — must start with `sk-ant-` |
+| AI not responding | Check `ANTHROPIC_API_KEY` in Vercel (server-side, no `VITE_`) |
+| Search / POI empty | Check `VITE_GOOGLE_MAPS_KEY` and that Places API (New) is enabled |
 | GPS not working | Must be on HTTPS (localhost is fine) — allow location permission |
 | `npm install` fails | Run `node --version` — need Node 18+ |
 | Blank white screen | Open browser console (F12), check for errors |
