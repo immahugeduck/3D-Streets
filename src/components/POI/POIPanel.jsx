@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import useStore from '../../store/appStore'
+import useStore, { PHASE } from '../../store/appStore'
 import { searchPOI } from '../../services/googlePlacesService'
 import styles from './POIPanel.module.css'
 
@@ -22,7 +22,7 @@ export default function POIPanel() {
   const poiCategory    = useStore(s => s.poiCategory)
   const setPoiCategory = useStore(s => s.setPoiCategory)
   const userLocation   = useStore(s => s.userLocation)
-  const isNavigating   = useStore(s => s.phase === 'navigating')
+  const isNavigating   = useStore(s => s.phase === PHASE.NAVIGATING)
   const addWaypoint    = useStore(s => s.addWaypoint)
   const setDestination = useStore(s => s.setDestination)
   const setPhase       = useStore(s => s.setPhase)
@@ -43,7 +43,7 @@ export default function POIPanel() {
       setShowPOI(false)
     } else {
       setDestination(place)
-      setPhase('route_preview')
+      setPhase(PHASE.ROUTE_PREVIEW)
       setShowPOI(false)
     }
   }
