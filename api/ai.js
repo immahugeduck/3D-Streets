@@ -7,7 +7,7 @@
 // Response: { text } | { error }
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
-const MODEL = process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest'
+const MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-4-7'
 const TIMEOUT_MS = 28000 // stay under Vercel's 30s function limit
 const REQUEST_ID_HEADER = 'X-Request-Id'
 const CLIENT_REQUEST_ID_HEADER = 'x-client-request-id'
@@ -218,7 +218,7 @@ async function callAnthropic({ system, messages, maxTokens }) {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': 'claude-opus-4-7',
       },
       body: JSON.stringify({
         model: MODEL,
